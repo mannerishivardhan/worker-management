@@ -54,7 +54,7 @@ router.put(
 
 /**
  * @route   DELETE /api/departments/:id
- * @desc    Delete department (soft delete)
+ * @desc    Delete department (hard delete)
  * @access  Admin, Super Admin
  */
 router.delete(
@@ -62,6 +62,18 @@ router.delete(
     requireWriteAccess,
     requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
     departmentController.delete
+);
+
+/**
+ * @route   POST /api/departments/:id/deactivate
+ * @desc    Deactivate department (soft delete)
+ * @access  Admin, Super Admin
+ */
+router.post(
+    '/:id/deactivate',
+    requireWriteAccess,
+    requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    departmentController.deactivate
 );
 
 module.exports = router;

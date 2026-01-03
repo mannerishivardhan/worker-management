@@ -1,6 +1,6 @@
 const { getFirestore, FieldValue } = require('../config/firebase');
 const { COLLECTIONS, AUDIT_ACTIONS } = require('../config/constants');
-const { generateId } = require('../utils/helpers');
+const { generateShiftId } = require('../utils/helpers'); // NEW: Random 4-char ID
 const auditService = require('./audit.service');
 const departmentService = require('./department.service');
 
@@ -28,19 +28,28 @@ class ShiftService {
                 throw new Error('This department does not use shifts');
             }
 
-            // Validate time
-            if (shiftData.startTime >= shiftData.endTime) {
-                throw new Error('End time must be after start time');
-            }
-
-            // Generate shift ID
-            const today = new Date().toISOString().split('T')[0];
-            const shiftId = await generateId(this.getDb(), COLLECTIONS.SHIFTS, 'SHIFT', today);
-
-            // Calculate work duration in hours
+            // Validate and calculate work duration
             const [startHour, startMin] = shiftData.startTime.split(':').map(Number);
             const [endHour, endMin] = shiftData.endTime.split(':').map(Number);
-            const workDurationHours = (endHour * 60 + endMin - (startHour * 60 + startMin)) / 60;
+
+            const startMinutes = startHour * 60 + startMin;
+            const endMinutes = endHour * 60 + endMin;
+
+            // Support overnight shifts (crosses midnight)
+            let workDurationHours;
+            if (endMinutes < startMinutes) {
+                // Overnight shift: 22:00 to 06:00 = 8 hours
+                workDurationHours = ((24 * 60 - startMinutes) + endMinutes) / 60;
+            } else {
+                // Same day shift
+                workDurationHours = (endMinutes - startMinutes) / 60;
+                if (workDurationHours <= 0) {
+                    throw new Error('End time must be after start time');
+                }
+            }
+
+            // Generate NEW format ID: SHFT_XXXX (random 4-char)
+            const shiftId = await generateShiftId(this.getDb());
 
             const newShift = {
                 shiftId,
@@ -115,6 +124,65 @@ class ShiftService {
             });
 
             return shifts;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * NEW: Get shifts for calendar view with full employee details
+     * Returns shifts with complete employee information, not just counts
+     */
+    async getShiftsForCalendar(filters = {}) {
+        try {
+            // Get all shifts with filters
+            const shifts = await this.getShifts(filters);
+
+            // For each shift, fetch employees assigned to it
+            const shiftsWithEmployees = await Promise.all(
+                shifts.map(async (shift) => {
+                    // Get employees assigned to this shift
+                    const employeesSnapshot = await this.getDb()
+                        .collection(COLLECTIONS.USERS)
+                        .where('shiftId', '==', shift.id)
+                        .where('isActive', '==', true)
+                        .get();
+
+                    const employees = [];
+                    employeesSnapshot.forEach(doc => {
+                        const empData = doc.data();
+                        employees.push({
+                            id: doc.id,
+                            employeeId: empData.employeeId,
+                            firstName: empData.firstName,
+                            lastName: empData.lastName,
+                            role: empData.role,
+                            avatar: empData.avatar || null,
+                            isActive: empData.isActive,
+                        });
+                    });
+
+                    return {
+                        ...shift,
+                        employees: employees,
+                        employeeCount: employees.length,
+                    };
+                })
+            );
+
+            // Calculate summary stats
+            const summary = {
+                totalShifts: shiftsWithEmployees.length,
+                totalEmployees: shiftsWithEmployees.reduce((sum, shift) => sum + shift.employeeCount, 0),
+                averageEmployeesPerShift: shiftsWithEmployees.length > 0
+                    ? parseFloat((shiftsWithEmployees.reduce((sum, shift) => sum + shift.employeeCount, 0) / shiftsWithEmployees.length).toFixed(2))
+                    : 0,
+            };
+
+            return {
+                shifts: shiftsWithEmployees,
+                summary,
+            };
         } catch (error) {
             throw error;
         }

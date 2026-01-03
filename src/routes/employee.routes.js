@@ -106,9 +106,9 @@ router.post(
 
 /**
  * @route   GET /api/employees/:id/history
- * @desc    Get employee transfer history
+ * @desc    Get employee change history
  * @access  All authenticated users
  */
-router.get('/:id/history', employeeController.getTransferHistory);
+router.get('/:id/history', employeeController.getHistory);
 
 module.exports = router;

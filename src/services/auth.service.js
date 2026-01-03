@@ -1,9 +1,9 @@
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const { getFirestore } = require('../config/firebase');
-const { COLLECTIONS, JWT_SECRET, JWT_EXPIRY, AUDIT_ACTIONS } = require('../config/constants');
+const { COLLECTIONS, AUDIT_ACTIONS } = require('../config/constants');
 const { sanitizeUser } = require('../utils/helpers');
 const auditService = require('./audit.service');
+const tokenService = require('./token.service');
 
 class AuthService {
     constructor() {
@@ -19,9 +19,9 @@ class AuthService {
 
     /**
      * Login user with email and password
-     * NOTE: Phone/OTP authentication code is commented out for future use
+     * Returns both access token (15 min) and refresh token (30 days with sliding window)
      */
-    async login(email, password, req) {
+    async login(email, password, deviceId, req) {
         try {
             // Find user by email
             const usersSnapshot = await this.getDb()
@@ -29,13 +29,6 @@ class AuthService {
                 .where('email', '==', email)
                 .limit(1)
                 .get();
-
-            // PHONE AUTH (COMMENTED FOR FUTURE USE):
-            // const usersSnapshot = await this.getDb()
-            //   .collection(COLLECTIONS.USERS)
-            //   .where('phone', '==', phone)
-            //   .limit(1)
-            //   .get();
 
             if (usersSnapshot.empty) {
                 // Log failed login attempt
@@ -47,12 +40,10 @@ class AuthService {
                     performedByName: 'Anonymous',
                     performedByRole: 'none',
                     newData: { email, reason: 'User not found' },
-                    // PHONE AUTH: newData: { phone, reason: 'User not found' },
                     req,
                 });
 
                 throw new Error('Invalid email or password');
-                // PHONE AUTH: throw new Error('Invalid phone number or password');
             }
 
             const userDoc = usersSnapshot.docs[0];
@@ -76,25 +67,21 @@ class AuthService {
                     performedByName: `${userData.firstName} ${userData.lastName}`,
                     performedByRole: userData.role,
                     newData: { email, reason: 'Invalid password' },
-                    // PHONE AUTH: newData: { phone, reason: 'Invalid password' },
                     req,
                 });
 
                 throw new Error('Invalid email or password');
-                // PHONE AUTH: throw new Error('Invalid phone number or password');
             }
 
-            // Generate JWT token
-            const token = jwt.sign(
-                {
-                    userId: userDoc.id,
-                    employeeId: userData.employeeId,
-                    role: userData.role,
-                    departmentId: userData.departmentId,
-                },
-                JWT_SECRET,
-                { expiresIn: JWT_EXPIRY }
-            );
+            // Prepare user object
+            const user = {
+                id: userDoc.id,
+                ...sanitizeUser(userData),
+            };
+
+            // Generate tokens
+            const accessToken = tokenService.generateAccessToken(user);
+            const refreshToken = await tokenService.generateRefreshToken(userDoc.id, deviceId);
 
             // Log successful login
             await auditService.log({
@@ -104,16 +91,117 @@ class AuthService {
                 performedBy: userDoc.id,
                 performedByName: `${userData.firstName} ${userData.lastName}`,
                 performedByRole: userData.role,
+                newData: { deviceId },
                 req,
             });
 
-            // Return user data (without password) and token
+            return {
+                user,
+                accessToken,
+                refreshToken: refreshToken.token,
+                expiresIn: 900, // 15 minutes in seconds
+                refreshExpiresIn: refreshToken.expiresIn,
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Refresh access token using refresh token (Sliding Window)
+     * Returns new access token AND new refresh token (30 days from now)
+     */
+    async refreshAccessToken(refreshToken, deviceId = 'default') {
+        try {
+            // Verify refresh token
+            const tokenData = await tokenService.verifyRefreshToken(refreshToken);
+
+            // Get user
+            const userDoc = await this.getDb().collection(COLLECTIONS.USERS).doc(tokenData.userId).get();
+
+            if (!userDoc.exists) {
+                throw new Error('User not found');
+            }
+
+            const userData = userDoc.data();
+
+            if (!userData.isActive) {
+                throw new Error('Account has been deactivated');
+            }
+
             const user = {
                 id: userDoc.id,
                 ...sanitizeUser(userData),
             };
 
-            return { user, token };
+            // Generate new access token
+            const accessToken = tokenService.generateAccessToken(user);
+
+            // SLIDING WINDOW: Generate NEW refresh token (30 days from now)
+            // This keeps users logged in forever as long as they use the app
+            const newRefreshToken = await tokenService.rotateRefreshToken(
+                refreshToken,
+                tokenData.userId,
+                deviceId
+            );
+
+            return {
+                accessToken,
+                refreshToken: newRefreshToken.token,
+                expiresIn: 900, // 15 minutes in seconds
+                refreshExpiresIn: newRefreshToken.expiresIn,
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Logout user - invalidate refresh token
+     */
+    async logout(refreshToken, userId, req) {
+        try {
+            // Revoke refresh token
+            await tokenService.revokeRefreshToken(refreshToken);
+
+            // Log logout
+            await auditService.log({
+                action: AUDIT_ACTIONS.LOGOUT,
+                entityType: 'auth',
+                entityId: userId,
+                performedBy: userId,
+                performedByName: req.user?.firstName ? `${req.user.firstName} ${req.user.lastName}` : 'User',
+                performedByRole: req.user?.role || 'employee',
+                req,
+            });
+
+            return true;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Logout from all devices - revoke all refresh tokens
+     */
+    async logoutAllDevices(userId, req) {
+        try {
+            // Revoke all refresh tokens
+            const revokedCount = await tokenService.revokeAllUserTokens(userId);
+
+            // Log logout from all devices
+            await auditService.log({
+                action: AUDIT_ACTIONS.LOGOUT,
+                entityType: 'auth',
+                entityId: userId,
+                performedBy: userId,
+                performedByName: req.user ? `${req.user.firstName} ${req.user.lastName}` : 'User',
+                performedByRole: req.user?.role || 'employee',
+                newData: { devicesLoggedOut: revokedCount },
+                req,
+            });
+
+            return revokedCount;
         } catch (error) {
             throw error;
         }

@@ -1,6 +1,6 @@
 const { getFirestore, FieldValue } = require('../config/firebase');
 const { COLLECTIONS, AUDIT_ACTIONS } = require('../config/constants');
-const { generateId } = require('../utils/helpers');
+const { generateDepartmentId } = require('../utils/helpers'); // NEW: Use specific generator
 const auditService = require('./audit.service');
 
 class DepartmentService {
@@ -32,9 +32,8 @@ class DepartmentService {
                 throw new Error('Department with this name already exists');
             }
 
-            // Generate department ID
-            const today = new Date().toISOString().split('T')[0];
-            const departmentId = await generateId(this.getDb(), COLLECTIONS.DEPARTMENTS, 'DEPT', today);
+            // Generate NEW format ID: DEPT_XXXX (random 4-char)
+            const departmentId = await generateDepartmentId(this.getDb());
 
             const newDepartment = {
                 departmentId,
@@ -79,23 +78,11 @@ class DepartmentService {
         try {
             let query = this.getDb().collection(COLLECTIONS.DEPARTMENTS);
 
-            // Apply filters
             if (filters.isActive !== undefined) {
                 query = query.where('isActive', '==', filters.isActive);
             }
-            if (filters.hasShifts !== undefined) {
-                query = query.where('hasShifts', '==', filters.hasShifts);
-            }
 
-            // Pagination
-            if (filters.limit) {
-                query = query.limit(parseInt(filters.limit));
-            }
-            if (filters.offset) {
-                query = query.offset(parseInt(filters.offset));
-            }
-
-            query = query.orderBy('createdAt', 'desc');
+            query = query.orderBy('name', 'asc');
 
             const snapshot = await query.get();
             const departments = [];
@@ -118,7 +105,10 @@ class DepartmentService {
      */
     async getDepartmentById(departmentId) {
         try {
-            const doc = await this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId).get();
+            const doc = await this.getDb()
+                .collection(COLLECTIONS.DEPARTMENTS)
+                .doc(departmentId)
+                .get();
 
             if (!doc.exists) {
                 throw new Error('Department not found');
@@ -147,7 +137,7 @@ class DepartmentService {
 
             const previousData = deptDoc.data();
 
-            // If name is being changed, check uniqueness
+            // Check if name is being updated and if it conflicts
             if (updates.name && updates.name !== previousData.name) {
                 const existingDept = await this.getDb()
                     .collection(COLLECTIONS.DEPARTMENTS)
@@ -156,7 +146,7 @@ class DepartmentService {
                     .limit(1)
                     .get();
 
-                if (!existingDept.empty) {
+                if (!existingDept.empty && existingDept.docs[0].id !== departmentId) {
                     throw new Error('Department with this name already exists');
                 }
             }
@@ -193,42 +183,38 @@ class DepartmentService {
     }
 
     /**
-     * Delete department (soft delete)
+     * Delete department (hard delete - only if no employees)
      */
     async deleteDepartment(departmentId, performedBy, req) {
         try {
-            // Check if department has active employees
-            const employeesSnapshot = await this.getDb()
-                .collection(COLLECTIONS.USERS)
-                .where('departmentId', '==', departmentId)
-                .where('isActive', '==', true)
-                .limit(1)
-                .get();
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
 
-            if (!employeesSnapshot.empty) {
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const deptData = deptDoc.data();
+
+            // Check if department has employees
+            if (deptData.employeeCount > 0) {
                 throw new Error('Cannot delete department with active employees');
             }
 
-            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
-            const previousData = (await deptRef.get()).data();
+            const previousData = deptData;
 
-            await deptRef.update({
-                isActive: false,
-                updatedAt: FieldValue.serverTimestamp(),
-                updatedBy: performedBy.userId,
-            });
+            await deptRef.delete();
 
             // Audit log
             await auditService.log({
-                action: AUDIT_ACTIONS.DEPARTMENT_UPDATED,
+                action: AUDIT_ACTIONS.DEPARTMENT_DELETED,
                 entityType: 'department',
                 entityId: departmentId,
                 performedBy: performedBy.userId,
                 performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
                 performedByRole: performedBy.role,
                 previousData,
-                newData: { isActive: false },
-                reason: 'Department deleted',
+                reason: 'Department hard deleted',
                 req,
             });
 
@@ -239,15 +225,83 @@ class DepartmentService {
     }
 
     /**
+     * NEW: Deactivate department (soft delete)
+     * Can only deactivate if no active employees
+     */
+    async deactivateDepartment(departmentId, performedBy, req) {
+        try {
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
+
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const deptData = deptDoc.data();
+
+            // Check if already deactivated
+            if (!deptData.isActive) {
+                throw new Error('Department is already deactivated');
+            }
+
+            // Check for active employees
+            const activeEmployees = await this.getDb()
+                .collection(COLLECTIONS.USERS)
+                .where('departmentId', '==', departmentId)
+                .where('isActive', '==', true)
+                .limit(1)
+                .get();
+
+            if (!activeEmployees.empty) {
+                throw new Error('Cannot deactivate department with active employees. Please transfer or deactivate all employees first.');
+            }
+
+            const previousData = deptData;
+
+            // Soft delete - set isActive to false
+            await deptRef.update({
+                isActive: false,
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedBy: performedBy.userId,
+                deactivatedAt: FieldValue.serverTimestamp(),
+                deactivatedBy: performedBy.userId,
+            });
+
+            // Audit log
+            await auditService.log({
+                action: AUDIT_ACTIONS.DEPARTMENT_DEACTIVATED,
+                entityType: 'department',
+                entityId: departmentId,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                previousData,
+                newData: { isActive: false },
+                reason: 'Department deactivated (soft delete)',
+                req,
+            });
+
+            return {
+                success: true,
+                message: 'Department deactivated successfully'
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
      * Increment employee count for a department
      */
     async incrementEmployeeCount(departmentId) {
         try {
-            await this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId).update({
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            await deptRef.update({
                 employeeCount: FieldValue.increment(1),
+                updatedAt: FieldValue.serverTimestamp(),
             });
         } catch (error) {
-            console.error('Error incrementing employee count:', error);
+            throw error;
         }
     }
 
@@ -256,11 +310,13 @@ class DepartmentService {
      */
     async decrementEmployeeCount(departmentId) {
         try {
-            await this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId).update({
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            await deptRef.update({
                 employeeCount: FieldValue.increment(-1),
+                updatedAt: FieldValue.serverTimestamp(),
             });
         } catch (error) {
-            console.error('Error decrementing employee count:', error);
+            throw error;
         }
     }
 }

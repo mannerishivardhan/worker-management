@@ -37,19 +37,31 @@ module.exports = {
 
     // Action Types for Audit Logs
     AUDIT_ACTIONS: {
-        USER_CREATED: 'user_created',
-        USER_UPDATED: 'user_updated',
-        USER_DEACTIVATED: 'user_deactivated',
-        DEPARTMENT_CREATED: 'department_created',
-        DEPARTMENT_UPDATED: 'department_updated',
-        SHIFT_CREATED: 'shift_created',
-        SHIFT_UPDATED: 'shift_updated',
-        SHIFT_ASSIGNED: 'shift_assigned',
-        ATTENDANCE_MARKED: 'attendance_marked',
-        ATTENDANCE_CORRECTED: 'attendance_corrected',
-        EMPLOYEE_TRANSFERRED: 'employee_transferred',
-        LOGIN_SUCCESS: 'login_success',
-        LOGIN_FAILED: 'login_failed',
+        // Authentication
+        LOGIN_SUCCESS: 'LOGIN_SUCCESS',
+        LOGIN_FAILED: 'LOGIN_FAILED',
+        LOGOUT: 'LOGOUT', // NEW: Track logout events
+
+        // Department
+        DEPARTMENT_CREATED: 'DEPARTMENT_CREATED',
+        DEPARTMENT_UPDATED: 'DEPARTMENT_UPDATED',
+        DEPARTMENT_DELETED: 'DEPARTMENT_DELETED',
+        DEPARTMENT_DEACTIVATED: 'DEPARTMENT_DEACTIVATED', // NEW
+
+        // Employee
+        EMPLOYEE_CREATED: 'EMPLOYEE_CREATED',
+        EMPLOYEE_UPDATED: 'EMPLOYEE_UPDATED',
+        EMPLOYEE_DEACTIVATED: 'EMPLOYEE_DEACTIVATED',
+        EMPLOYEE_TRANSFERRED: 'EMPLOYEE_TRANSFERRED',
+
+        // Shift
+        SHIFT_CREATED: 'SHIFT_CREATED',
+        SHIFT_UPDATED: 'SHIFT_UPDATED',
+        SHIFT_DELETED: 'SHIFT_DELETED',
+
+        // Attendance
+        ATTENDANCE_MARKED: 'ATTENDANCE_MARKED',
+        ATTENDANCE_CORRECTED: 'ATTENDANCE_CORRECTED',
     },
 
     // Collection Names
@@ -59,6 +71,16 @@ module.exports = {
         SHIFTS: 'shifts',
         ATTENDANCE: 'attendance',
         AUDIT_LOGS: 'audit_logs',
-        DEPARTMENT_TRANSFERS: 'department_transfers',
+        TRANSFER_HISTORY: 'transfer_history',
+        REFRESH_TOKENS: 'refresh_tokens', // NEW: For sliding window refresh tokens
+        SHIFT_ASSIGNMENTS: 'shift_assignments', // NEW: For shift scheduling
+    },
+
+    // Shift Assignment Status (NEW: For scheduling)
+    ASSIGNMENT_STATUS: {
+        SCHEDULED: 'scheduled',    // Shift planned but not started
+        CONFIRMED: 'confirmed',    // Employee confirmed the shift
+        CANCELLED: 'cancelled',    // Shift assignment cancelled
+        COMPLETED: 'completed',    // Shift completed
     },
 };

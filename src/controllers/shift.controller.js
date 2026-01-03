@@ -50,6 +50,28 @@ class ShiftController {
     }
 
     /**
+     * NEW: Get shifts for calendar view with employee details
+     */
+    async getCalendar(req, res, next) {
+        try {
+            const filters = {
+                departmentId: req.query.departmentId,
+                isActive: req.query.isActive !== undefined ? req.query.isActive === 'true' : true, // Default to active only
+            };
+
+            const result = await shiftService.getShiftsForCalendar(filters);
+
+            res.status(200).json({
+                success: true,
+                data: result.shifts,
+                summary: result.summary,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
      * Get shift by ID
      */
     async getById(req, res, next) {

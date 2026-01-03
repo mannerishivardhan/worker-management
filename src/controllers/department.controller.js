@@ -110,6 +110,27 @@ class DepartmentController {
             next(error);
         }
     }
+
+    /**
+     * NEW: Deactivate department (soft delete)
+     */
+    async deactivate(req, res, next) {
+        try {
+            const performedBy = {
+                userId: req.user.userId,
+                ...req.body._performedBy,
+            };
+
+            const result = await departmentService.deactivateDepartment(req.params.id, performedBy, req);
+
+            res.status(200).json({
+                success: true,
+                message: result.message,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 module.exports = new DepartmentController();

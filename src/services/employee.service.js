@@ -1,9 +1,10 @@
 const { getFirestore, FieldValue, Timestamp } = require('../config/firebase');
 const { COLLECTIONS, AUDIT_ACTIONS, TRANSFER_TYPES } = require('../config/constants');
-const { generateId } = require('../utils/helpers');
+const { generateEmployeeId, generateAvatarUrl } = require('../utils/helpers'); // NEW: Sequential ID generator + Avatar
 const authService = require('./auth.service');
 const departmentService = require('./department.service');
 const auditService = require('./audit.service');
+const historyService = require('./history.service'); // NEW: History tracking
 
 class EmployeeService {
     constructor() {
@@ -47,14 +48,11 @@ class EmployeeService {
             // Verify department exists
             const department = await departmentService.getDepartmentById(employeeData.departmentId);
 
-            // If department has shifts, shift assignment is mandatory
-            if (department.hasShifts && !employeeData.shiftId) {
-                throw new Error('Shift assignment is mandatory for this department');
-            }
+            // NOTE: Shift assignment is OPTIONAL even in shift-based departments
+            // Employees can be: unassigned, day off, floating, etc.
 
-            // Generate employee ID
-            const today = new Date().toISOString().split('T')[0];
-            const employeeId = await generateId(this.getDb(), COLLECTIONS.USERS, 'EMP', today);
+            // Generate NEW format ID: EMP_00001 (sequential 5-digit)
+            const employeeId = await generateEmployeeId(this.getDb());
 
             // Hash password
             const hashedPassword = await authService.hashPassword(employeeData.password);
@@ -81,6 +79,9 @@ class EmployeeService {
                 joiningDateTimestamp = Timestamp.fromDate(todayMidnight);
             }
 
+            // Generate avatar URL (deterministic based on employee ID)
+            const avatar = generateAvatarUrl(employeeId, employeeData.firstName, employeeData.lastName);
+
             const newEmployee = {
                 employeeId,
                 firstName: employeeData.firstName,
@@ -95,6 +96,20 @@ class EmployeeService {
                 shiftName: shiftName,
                 monthlySalary: employeeData.monthlySalary,
                 joiningDate: joiningDateTimestamp, // Firestore Timestamp
+
+                // NEW: Emergency contact information
+                emergencyContact: employeeData.emergencyContact || {
+                    name: null,
+                    relationship: null,
+                    phone: null,
+                    alternatePhone: null,
+                    address: null
+                },
+
+                // NEW: Avatar and photo
+                avatar: avatar, // Auto-generated from DiceBear
+                photoUrl: employeeData.photoUrl || null, // Custom photo (if uploaded)
+
                 isActive: true,
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
@@ -103,6 +118,9 @@ class EmployeeService {
             };
 
             const userRef = await this.getDb().collection(COLLECTIONS.USERS).add(newEmployee);
+
+            // Define today for transfer record
+            const today = new Date().toISOString().split('T')[0];
 
             // Create initial department transfer record
             await this.createTransferRecord({
@@ -288,6 +306,27 @@ class EmployeeService {
                 newData: { ...updateData, password: updateData.password ? '[REDACTED]' : undefined },
                 req,
             });
+
+            // NEW: Log to employee history subcollection
+            // Clean data to remove undefined values (Firestore doesn't accept them)
+            const cleanPreviousData = { ...previousData };
+            delete cleanPreviousData.password;
+
+            const cleanNewData = { ...updateData };
+            if (cleanNewData.password) {
+                cleanNewData.password = '[REDACTED]';
+            } else {
+                delete cleanNewData.password;
+            }
+
+            await historyService.logChange(
+                userId,
+                'profile_updated',
+                cleanPreviousData,
+                cleanNewData,
+                performedBy.userId,
+                'Employee profile information updated'
+            );
 
             delete updateData.password;
 
