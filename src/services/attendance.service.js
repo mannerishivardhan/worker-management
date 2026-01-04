@@ -231,6 +231,7 @@ class AttendanceService {
 
     /**
      * Correct attendance record
+     * Rules: Past 7 days only, reason required (min 10 chars), recalculate salary
      */
     async correctAttendance(attendanceId, corrections, performedBy, req) {
         try {
@@ -242,8 +243,31 @@ class AttendanceService {
             }
 
             const previousData = attendanceDoc.data();
+            const attendanceDate = previousData.date; // YYYY-MM-DD
+            const today = formatDate(new Date());
 
-            // Validate corrections
+            // ============ VALIDATION RULES ============
+
+            // Rule 1: Cannot correct today's attendance (use mark entry/exit instead)
+            if (attendanceDate === today) {
+                throw new Error('Cannot correct today\'s attendance. Use mark entry/exit buttons instead.');
+            }
+
+            // Rule 2: Can only correct past 7 days
+            const attendanceDateObj = new Date(attendanceDate + 'T00:00:00');
+            const todayObj = new Date(today + 'T00:00:00');
+            const daysDiff = (todayObj - attendanceDateObj) / (1000 * 60 * 60 * 24);
+
+            if (daysDiff > 7) {
+                throw new Error('Can only correct attendance from the past 7 days');
+            }
+
+            // Rule 3: Reason is required and must be at least 10 characters
+            if (!corrections.reason || corrections.reason.trim().length < 10) {
+                throw new Error('Correction reason is required and must be at least 10 characters');
+            }
+
+            // Rule 4: Validate entry/exit times
             if (corrections.entryTime && corrections.exitTime) {
                 const entry = new Date(corrections.entryTime);
                 const exit = new Date(corrections.exitTime);
@@ -251,12 +275,23 @@ class AttendanceService {
                 if (exit <= entry) {
                     throw new Error('Exit time must be after entry time');
                 }
+
+                // Ensure times are reasonable (30 min - 24 hours)
+                const durationMinutes = (exit - entry) / (1000 * 60);
+                if (durationMinutes < 30) {
+                    throw new Error('Work duration must be at least 30 minutes');
+                }
+                if (durationMinutes > 1440) {
+                    throw new Error('Work duration cannot exceed 24 hours');
+                }
             }
+
+            // ============ PREPARE UPDATE DATA ============
 
             const updateData = {
                 isCorrected: true,
                 correctedBy: performedBy.userId,
-                correctionReason: corrections.reason || 'Attendance correction',
+                correctionReason: corrections.reason.trim(),
                 updatedAt: FieldValue.serverTimestamp(),
             };
 
@@ -272,10 +307,10 @@ class AttendanceService {
 
             // Recalculate work duration if times were corrected
             if (corrections.entryTime || corrections.exitTime) {
-                const entryTime = corrections.entryTime ? new Date(corrections.entryTime) : previousData.entryTime.toDate();
+                const entryTime = corrections.entryTime ? new Date(corrections.entryTime) : previousData.entryTime?.toDate();
                 const exitTime = corrections.exitTime ? new Date(corrections.exitTime) : previousData.exitTime?.toDate();
 
-                if (exitTime) {
+                if (entryTime && exitTime) {
                     updateData.workDurationMinutes = calculateWorkDuration(entryTime, exitTime);
                     updateData.status = ATTENDANCE_STATUS.PRESENT;
                 }
@@ -286,9 +321,55 @@ class AttendanceService {
                 updateData.status = corrections.status;
             }
 
+            // Track if status changed (for salary recalculation)
+            const statusChanged = updateData.status && updateData.status !== previousData.status;
+
             await attendanceRef.update(updateData);
 
-            // Audit log
+            // ============ SALARY RECALCULATION ============
+            // If status changed (e.g., pending → present, absent → present), update monthly salary
+            if (statusChanged) {
+                try {
+                    // TODO: Implement salary recalculation when salary service is ready
+                    // For now, just log that salary needs recalculation
+                    console.log(`[Salary Impact] Attendance correction for user ${previousData.userId} on ${attendanceDate}`);
+                    console.log(`[Salary Impact] Status changed: ${previousData.status} → ${updateData.status}`);
+                } catch (salaryError) {
+                    console.error('Failed to recalculate salary:', salaryError);
+                    // Don't fail the correction if salary recalc fails - log it for manual review
+                }
+            }
+
+            // ============ HISTORY LOGGING ============
+            // Log correction to employee history
+            const historyService = require('./history.service');
+            try {
+                await historyService.logChange(
+                    previousData.userId,
+                    'attendance_corrected',
+                    {
+                        date: attendanceDate,
+                        entryTime: previousData.entryTime,
+                        exitTime: previousData.exitTime,
+                        status: previousData.status,
+                        workDurationMinutes: previousData.workDurationMinutes
+                    },
+                    {
+                        date: attendanceDate,
+                        entryTime: updateData.entryTime || previousData.entryTime,
+                        exitTime: updateData.exitTime || previousData.exitTime,
+                        status: updateData.status || previousData.status,
+                        workDurationMinutes: updateData.workDurationMinutes || previousData.workDurationMinutes
+                    },
+                    performedBy.userId,
+                    `Attendance corrected for ${attendanceDate}: ${corrections.reason.trim()}`
+                );
+            } catch (historyError) {
+                console.error('Failed to log to history:', historyError);
+                // Don't fail the correction if history logging fails
+            }
+
+            // ============ AUDIT LOG ============
             await auditService.log({
                 action: AUDIT_ACTIONS.ATTENDANCE_CORRECTED,
                 entityType: 'attendance',
@@ -298,8 +379,18 @@ class AttendanceService {
                 performedByRole: performedBy.role,
                 targetUserId: previousData.userId,
                 targetEmployeeId: previousData.employeeId,
-                previousData,
-                newData: updateData,
+                previousData: {
+                    date: attendanceDate,
+                    entryTime: previousData.entryTime,
+                    exitTime: previousData.exitTime,
+                    status: previousData.status
+                },
+                newData: {
+                    entryTime: updateData.entryTime,
+                    exitTime: updateData.exitTime,
+                    status: updateData.status,
+                    correctionReason: updateData.correctionReason
+                },
                 reason: corrections.reason,
                 req,
             });
@@ -404,7 +495,7 @@ class AttendanceService {
             // Format: YYYY-MM
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
 
-            const snapshot = await this.db
+            const snapshot = await this.getDb()
                 .collection(COLLECTIONS.ATTENDANCE)
                 .where('userId', '==', userId)
                 .where('date', '>=', `${monthStr}-01`)
@@ -432,6 +523,50 @@ class AttendanceService {
                 daysAbsent,
                 daysPending,
             };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Get past 7 days attendance for correction  
+     * Returns attendance records from yesterday to 7 days ago
+     */
+    async getPast7DaysAttendance(userId) {
+        try {
+            const today = formatDate(new Date());
+
+            // Calculate 7 days ago (not including today)
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const startDate = formatDate(sevenDaysAgo);
+
+            // Get yesterday's date
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const endDate = formatDate(yesterday);
+
+            const snapshot = await this.getDb()
+                .collection(COLLECTIONS.ATTENDANCE)
+                .where('userId', '==', userId)
+                .where('date', '>=', startDate)
+                .where('date', '<=', endDate)
+                .orderBy('date', 'desc')
+                .get();
+
+            const attendance = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                attendance.push({
+                    id: doc.id,
+                    ...data,
+                    // Convert Timestamps to ISO strings
+                    entryTime: data.entryTime?.toDate().toISOString(),
+                    exitTime: data.exitTime?.toDate().toISOString(),
+                });
+            });
+
+            return attendance;
         } catch (error) {
             throw error;
         }

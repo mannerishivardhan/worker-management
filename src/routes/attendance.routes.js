@@ -52,6 +52,15 @@ router.post(
     '/:id/correct',
     requireWriteAccess,
     requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    [
+        body('reason')
+            .notEmpty().withMessage('Correction reason is required')
+            .isLength({ min: 10 }).withMessage('Reason must be at least 10 characters'),
+        body('entryTime').optional().isISO8601().withMessage('Invalid entry time format'),
+        body('exitTime').optional().isISO8601().withMessage('Invalid exit time format'),
+        body('status').optional().isIn(['present', 'absent', 'half_day', 'pending']).withMessage('Invalid status'),
+    ],
+    validateRequest,
     attendanceController.correctAttendance
 );
 

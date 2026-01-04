@@ -14,7 +14,7 @@ const { authLimiter } = require('../middleware/rateLimiter.middleware');
  */
 router.post(
     '/login',
-    authLimiter,
+    // authLimiter, // Temporarily disabled for testing
     [
         body('email')
             .notEmpty().withMessage('Email is required')

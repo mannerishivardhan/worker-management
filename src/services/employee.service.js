@@ -256,7 +256,7 @@ class EmployeeService {
 
             // If email is being changed, check uniqueness
             if (updates.email && updates.email !== previousData.email) {
-                const existingUser = await this.db
+                const existingUser = await this.getDb()
                     .collection(COLLECTIONS.USERS)
                     .where('email', '==', updates.email)
                     .limit(1)
@@ -284,6 +284,44 @@ class EmployeeService {
                 updatedAt: FieldValue.serverTimestamp(),
                 updatedBy: performedBy.userId,
             };
+
+            // If department is changed, update department name
+            if (updates.departmentId && updates.departmentId !== previousData.departmentId) {
+                const department = await departmentService.getDepartmentById(updates.departmentId);
+                updateData.departmentName = department.name;
+
+                // Update department employee counts
+                await departmentService.decrementEmployeeCount(previousData.departmentId);
+                await departmentService.incrementEmployeeCount(updates.departmentId);
+
+                // Log department transfer to history
+                await historyService.logChange(
+                    userId,
+                    'department_transferred',
+                    {
+                        departmentId: previousData.departmentId,
+                        departmentName: previousData.departmentName
+                    },
+                    {
+                        departmentId: updates.departmentId,
+                        departmentName: department.name
+                    },
+                    performedBy.userId,
+                    `Transferred from ${previousData.departmentName} to ${department.name}`
+                );
+            }
+
+            // If role is changed, log to history
+            if (updates.role && updates.role !== previousData.role) {
+                await historyService.logChange(
+                    userId,
+                    'role_changed',
+                    { role: previousData.role },
+                    { role: updates.role },
+                    performedBy.userId,
+                    `Role changed from ${previousData.role} to ${updates.role}`
+                );
+            }
 
             // If password is being updated, hash it
             if (updates.password) {
