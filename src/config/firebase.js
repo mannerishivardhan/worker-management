@@ -6,19 +6,13 @@ const initializeFirebase = () => {
   if (firebaseInitialized) return;
 
   try {
-    console.log("🔥 RAW FIREBASE ENV VALUE:");
-    console.log(process.env.FIREBASE_SERVICE_ACCOUNT);
-
     if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT is EMPTY");
+      throw new Error('FIREBASE_SERVICE_ACCOUNT is missing');
     }
 
     const serviceAccount = JSON.parse(
       process.env.FIREBASE_SERVICE_ACCOUNT
     );
-
-    console.log("🔥 Parsed service account keys:");
-    console.log(Object.keys(serviceAccount));
 
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
@@ -35,4 +29,5 @@ const initializeFirebase = () => {
 
 module.exports = {
   initializeFirebase,
+  admin,
 };
