@@ -7,6 +7,8 @@ module.exports = {
     PORT: process.env.PORT || 3000,
     HOST: process.env.HOST || 'localhost',
     NODE_ENV: process.env.NODE_ENV || 'development',
+    PRODUCTION_URL: process.env.PRODUCTION_URL || 'http://localhost:3000',
+    ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || 'http://localhost:3000',
 
     // Rate Limiting
     RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000, // 1 minute

@@ -16,7 +16,40 @@ initializeFirebase();
 
 // Security middleware
 app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+
+// CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000'];
+
+// Add Railway public domain automatically if available
+if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    const railwayDomain = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    if (!allowedOrigins.includes(railwayDomain)) {
+        allowedOrigins.push(railwayDomain);
+    }
+}
+
+console.log('🔒 CORS allowed origins:', allowedOrigins);
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.warn(`⚠️  CORS blocked request from origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json());
