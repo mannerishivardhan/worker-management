@@ -1,6 +1,7 @@
 const { getDaysInMonth } = require('../utils/helpers');
 const employeeService = require('./employee.service');
 const attendanceService = require('./attendance.service');
+const departmentService = require('./department.service');
 
 class SalaryService {
     constructor() { }
@@ -97,9 +98,9 @@ class SalaryService {
      */
     async getSystemWideSalaryReport(year, month) {
         try {
-            const { getDepartments } = require('./department.service');
+            const departmentService = require('./department.service');
 
-            const departments = await getDepartments({ isActive: true });
+            const departments = await departmentService.getDepartments({ isActive: true });
 
             const reports = await Promise.all(
                 departments.map(async (dept) => {
