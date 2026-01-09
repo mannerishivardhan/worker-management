@@ -45,7 +45,9 @@ class DepartmentService {
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
                 createdBy: performedBy.userId,
+                createdByRole: performedBy.role,
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             };
 
             const docRef = await this.getDb().collection(COLLECTIONS.DEPARTMENTS).add(newDepartment);
@@ -155,6 +157,7 @@ class DepartmentService {
                 ...updates,
                 updatedAt: FieldValue.serverTimestamp(),
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             };
 
             await deptRef.update(updateData);

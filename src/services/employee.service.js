@@ -114,7 +114,9 @@ class EmployeeService {
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
                 createdBy: performedBy.userId,
+                createdByRole: performedBy.role,
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             };
 
             const userRef = await this.getDb().collection(COLLECTIONS.USERS).add(newEmployee);
@@ -283,6 +285,7 @@ class EmployeeService {
                 ...updates,
                 updatedAt: FieldValue.serverTimestamp(),
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             };
 
             // If department is changed, update department name
@@ -410,6 +413,7 @@ class EmployeeService {
                 shiftName: newShiftName,
                 updatedAt: FieldValue.serverTimestamp(),
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             });
 
             // Create transfer record
@@ -483,6 +487,7 @@ class EmployeeService {
                 isActive: false,
                 updatedAt: FieldValue.serverTimestamp(),
                 updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role,
             });
 
             // Decrement department employee count
