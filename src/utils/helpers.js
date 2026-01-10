@@ -160,6 +160,15 @@ const generateAttendanceId = async (db) => {
     return id;
 };
 
+/**
+ * Generate department history ID
+ * Format: DHIST_XXXXXX (random 6-char alphanumeric)
+ * Example: DHIST_K3X7M9
+ */
+const generateDepartmentHistoryId = () => {
+    return generateRandomId('DHIST', 6);
+};
+
 // ==================== OLD FUNCTION (BACKWARD COMPATIBILITY) ====================
 
 /**
@@ -350,6 +359,7 @@ module.exports = {
     generateShiftId,
     generateAttendanceId,
     generateScheduleId,  // NEW: For shift scheduling
+    generateDepartmentHistoryId, // NEW: For department history
 
     // Old generator (backward compatibility)
     generateId,

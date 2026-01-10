@@ -37,6 +37,28 @@ module.exports = {
         PROMOTION: 'promotion',
     },
 
+    // Department Status
+    DEPARTMENT_STATUS: {
+        ACTIVE: 'active',
+        DEACTIVATED: 'deactivated',
+    },
+
+    // Department History Actions
+    DEPARTMENT_HISTORY_ACTIONS: {
+        CREATED: 'created',
+        UPDATED: 'updated',
+        DELETED: 'deleted',
+        ACTIVATED: 'activated',
+        DEACTIVATED: 'deactivated',
+        HEAD_ASSIGNED: 'head_assigned',
+        HEAD_CHANGED: 'head_changed',
+        HEAD_REMOVED: 'head_removed',
+        ROLE_ADDED: 'role_added',
+        ROLE_UPDATED: 'role_updated',
+        ROLE_REMOVED: 'role_removed',
+        SHIFTS_CONFIG_CHANGED: 'shifts_configuration_changed',
+    },
+
     // Action Types for Audit Logs
     AUDIT_ACTIONS: {
         // Authentication
@@ -76,6 +98,7 @@ module.exports = {
         TRANSFER_HISTORY: 'transfer_history',
         REFRESH_TOKENS: 'refresh_tokens', // NEW: For sliding window refresh tokens
         SHIFT_ASSIGNMENTS: 'shift_assignments', // NEW: For shift scheduling
+        DEPARTMENT_HISTORY: 'department_history', // NEW: For department change tracking
     },
 
     // Shift Assignment Status (NEW: For scheduling)

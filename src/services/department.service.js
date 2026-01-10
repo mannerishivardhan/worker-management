@@ -1,7 +1,8 @@
 const { getFirestore, FieldValue } = require('../config/firebase');
-const { COLLECTIONS, AUDIT_ACTIONS } = require('../config/constants');
+const { COLLECTIONS, AUDIT_ACTIONS, DEPARTMENT_STATUS, DEPARTMENT_HISTORY_ACTIONS } = require('../config/constants');
 const { generateDepartmentId } = require('../utils/helpers'); // NEW: Use specific generator
 const auditService = require('./audit.service');
+const departmentHistoryService = require('./departmentHistory.service');
 
 class DepartmentService {
     constructor() {
@@ -43,6 +44,17 @@ class DepartmentService {
                 roles: departmentData.roles || [], // NEW: Array of {name, shifts: [{name, startTime, endTime}]}
                 employeeCount: 0,
                 isActive: true,
+                status: DEPARTMENT_STATUS.ACTIVE,
+                deactivationReason: null,
+                deactivatedAt: null,
+                deactivatedBy: null,
+                departmentHead: {
+                    userId: null,
+                    employeeId: null,
+                    employeeName: null,
+                    assignedAt: null,
+                    assignedBy: null
+                },
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
                 createdBy: performedBy.userId,
@@ -63,6 +75,22 @@ class DepartmentService {
                 performedByRole: performedBy.role,
                 newData: newDepartment,
                 req,
+            });
+
+            // Log to department history
+            await departmentHistoryService.logChange({
+                departmentId: newDepartment.departmentId,
+                departmentDocId: docRef.id,
+                departmentName: newDepartment.name,
+                actionType: DEPARTMENT_HISTORY_ACTIONS.CREATED,
+                changedFields: [],
+                previousData: null,
+                newData: newDepartment,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                req
             });
 
             return {
@@ -319,6 +347,348 @@ class DepartmentService {
                 employeeCount: FieldValue.increment(-1),
                 updatedAt: FieldValue.serverTimestamp(),
             });
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Deactivate a department (with reason)
+     */
+    async deactivateDepartment(departmentId, reason, performedBy, req) {
+        try {
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
+
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const previousData = deptDoc.data();
+
+            // Check if already deactivated
+            if (previousData.status === DEPARTMENT_STATUS.DEACTIVATED) {
+                throw new Error('Department is already deactivated');
+            }
+
+            // Optional: Check if there are active employees
+            if (previousData.employeeCount > 0) {
+                throw new Error('Cannot deactivate department with active employees. Please transfer employees first.');
+            }
+
+            const updateData = {
+                status: DEPARTMENT_STATUS.DEACTIVATED,
+                isActive: false,
+                deactivationReason: reason,
+                deactivatedAt: FieldValue.serverTimestamp(),
+                deactivatedBy: performedBy.userId,
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role
+            };
+
+            await deptRef.update(updateData);
+
+            // Log to audit
+            await auditService.log({
+                action: AUDIT_ACTIONS.DEPARTMENT_DEACTIVATED,
+                entityType: 'department',
+                entityId: departmentId,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                previousData,
+                newData: updateData,
+                req,
+            });
+
+            // Log to department history
+            await departmentHistoryService.logChange({
+                departmentId: previousData.departmentId,
+                departmentDocId: departmentId,
+                departmentName: previousData.name,
+                actionType: DEPARTMENT_HISTORY_ACTIONS.DEACTIVATED,
+                changedFields: ['status', 'isActive', 'deactivationReason'],
+                previousData: {
+                    status: previousData.status,
+                    isActive: previousData.isActive
+                },
+                newData: {
+                    status: updateData.status,
+                    isActive: updateData.isActive,
+                    deactivationReason: updateData.deactivationReason
+                },
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                reason,
+                req
+            });
+
+            return {
+                id: departmentId,
+                ...previousData,
+                ...updateData
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Activate a deactivated department
+     */
+    async activateDepartment(departmentId, performedBy, req) {
+        try {
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
+
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const previousData = deptDoc.data();
+
+            // Check if already active
+            if (previousData.status === DEPARTMENT_STATUS.ACTIVE) {
+                throw new Error('Department is already active');
+            }
+
+            const updateData = {
+                status: DEPARTMENT_STATUS.ACTIVE,
+                isActive: true,
+                deactivationReason: null,
+                deactivatedAt: null,
+                deactivatedBy: null,
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role
+            };
+
+            await deptRef.update(updateData);
+
+            // Log to audit
+            await auditService.log({
+                action: AUDIT_ACTIONS.DEPARTMENT_UPDATED,
+                entityType: 'department',
+                entityId: departmentId,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                previousData,
+                newData: updateData,
+                req,
+            });
+
+            // Log to department history
+            await departmentHistoryService.logChange({
+                departmentId: previousData.departmentId,
+                departmentDocId: departmentId,
+                departmentName: previousData.name,
+                actionType: DEPARTMENT_HISTORY_ACTIONS.ACTIVATED,
+                changedFields: ['status', 'isActive'],
+                previousData: {
+                    status: previousData.status,
+                    isActive: previousData.isActive
+                },
+                newData: {
+                    status: updateData.status,
+                    isActive: updateData.isActive
+                },
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                req
+            });
+
+            return {
+                id: departmentId,
+                ...previousData,
+                ...updateData
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Assign or change department head
+     */
+    async assignDepartmentHead(departmentId, employeeId, performedBy, req) {
+        try {
+            // Get department
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
+
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const previousData = deptDoc.data();
+
+            // Get employee details
+            const employeeDoc = await this.getDb()
+                .collection(COLLECTIONS.USERS)
+                .doc(employeeId)
+                .get();
+
+            if (!employeeDoc.exists) {
+                throw new Error('Employee not found');
+            }
+
+            const employee = employeeDoc.data();
+
+            // Validate employee is active
+            if (!employee.isActive) {
+                throw new Error('Cannot assign inactive employee as department head');
+            }
+
+            // Validate employee belongs to this department
+            if (employee.departmentId !== departmentId) {
+                throw new Error('Employee must belong to this department to be assigned as head');
+            }
+
+            // Determine if this is new assignment or change
+            const isChange = previousData.departmentHead?.userId !== null;
+            const actionType = isChange 
+                ? DEPARTMENT_HISTORY_ACTIONS.HEAD_CHANGED 
+                : DEPARTMENT_HISTORY_ACTIONS.HEAD_ASSIGNED;
+
+            const updateData = {
+                departmentHead: {
+                    userId: employeeId,
+                    employeeId: employee.employeeId,
+                    employeeName: `${employee.firstName} ${employee.lastName}`,
+                    assignedAt: FieldValue.serverTimestamp(),
+                    assignedBy: performedBy.userId
+                },
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role
+            };
+
+            await deptRef.update(updateData);
+
+            // Log to audit
+            await auditService.log({
+                action: AUDIT_ACTIONS.DEPARTMENT_UPDATED,
+                entityType: 'department',
+                entityId: departmentId,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                previousData,
+                newData: updateData,
+                req,
+            });
+
+            // Log to department history
+            await departmentHistoryService.logChange({
+                departmentId: previousData.departmentId,
+                departmentDocId: departmentId,
+                departmentName: previousData.name,
+                actionType,
+                changedFields: ['departmentHead'],
+                previousData: {
+                    departmentHead: previousData.departmentHead
+                },
+                newData: {
+                    departmentHead: updateData.departmentHead
+                },
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                relatedEntityType: 'employee',
+                relatedEntityId: employee.employeeId,
+                req
+            });
+
+            return {
+                id: departmentId,
+                ...previousData,
+                ...updateData
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Remove department head
+     */
+    async removeDepartmentHead(departmentId, reason, performedBy, req) {
+        try {
+            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
+            const deptDoc = await deptRef.get();
+
+            if (!deptDoc.exists) {
+                throw new Error('Department not found');
+            }
+
+            const previousData = deptDoc.data();
+
+            // Check if head exists
+            if (!previousData.departmentHead?.userId) {
+                throw new Error('No department head assigned');
+            }
+
+            const updateData = {
+                departmentHead: {
+                    userId: null,
+                    employeeId: null,
+                    employeeName: null,
+                    assignedAt: null,
+                    assignedBy: null
+                },
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedBy: performedBy.userId,
+                updatedByRole: performedBy.role
+            };
+
+            await deptRef.update(updateData);
+
+            // Log to audit
+            await auditService.log({
+                action: AUDIT_ACTIONS.DEPARTMENT_UPDATED,
+                entityType: 'department',
+                entityId: departmentId,
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                previousData,
+                newData: updateData,
+                req,
+            });
+
+            // Log to department history
+            await departmentHistoryService.logChange({
+                departmentId: previousData.departmentId,
+                departmentDocId: departmentId,
+                departmentName: previousData.name,
+                actionType: DEPARTMENT_HISTORY_ACTIONS.HEAD_REMOVED,
+                changedFields: ['departmentHead'],
+                previousData: {
+                    departmentHead: previousData.departmentHead
+                },
+                newData: {
+                    departmentHead: updateData.departmentHead
+                },
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                reason,
+                req
+            });
+
+            return {
+                id: departmentId,
+                ...previousData,
+                ...updateData
+            };
         } catch (error) {
             throw error;
         }

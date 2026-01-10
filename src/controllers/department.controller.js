@@ -1,4 +1,5 @@
 const departmentService = require('../services/department.service');
+const departmentHistoryService = require('../services/departmentHistory.service');
 
 class DepartmentController {
     /**
@@ -112,20 +113,153 @@ class DepartmentController {
     }
 
     /**
-     * NEW: Deactivate department (soft delete)
+     * NEW: Deactivate department (with reason)
      */
     async deactivate(req, res, next) {
+        try {
+            const { reason } = req.body;
+            
+            if (!reason || reason.trim() === '') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Deactivation reason is required'
+                });
+            }
+
+            const performedBy = {
+                userId: req.user.userId,
+                ...req.body._performedBy,
+            };
+
+            const department = await departmentService.deactivateDepartment(
+                req.params.id,
+                reason,
+                performedBy,
+                req
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Department deactivated successfully',
+                data: department,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * NEW: Activate department
+     */
+    async activate(req, res, next) {
         try {
             const performedBy = {
                 userId: req.user.userId,
                 ...req.body._performedBy,
             };
 
-            const result = await departmentService.deactivateDepartment(req.params.id, performedBy, req);
+            const department = await departmentService.activateDepartment(
+                req.params.id,
+                performedBy,
+                req
+            );
 
             res.status(200).json({
                 success: true,
-                message: result.message,
+                message: 'Department activated successfully',
+                data: department,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * NEW: Assign department head
+     */
+    async assignHead(req, res, next) {
+        try {
+            const { employeeId } = req.body;
+
+            if (!employeeId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Employee ID is required'
+                });
+            }
+
+            const performedBy = {
+                userId: req.user.userId,
+                ...req.body._performedBy,
+            };
+
+            const department = await departmentService.assignDepartmentHead(
+                req.params.id,
+                employeeId,
+                performedBy,
+                req
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Department head assigned successfully',
+                data: department,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * NEW: Remove department head
+     */
+    async removeHead(req, res, next) {
+        try {
+            const { reason } = req.body;
+
+            const performedBy = {
+                userId: req.user.userId,
+                ...req.body._performedBy,
+            };
+
+            const department = await departmentService.removeDepartmentHead(
+                req.params.id,
+                reason || 'No reason provided',
+                performedBy,
+                req
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Department head removed successfully',
+                data: department,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * NEW: Get department history
+     */
+    async getHistory(req, res, next) {
+        try {
+            const filters = {
+                actionType: req.query.actionType,
+                startDate: req.query.startDate,
+                endDate: req.query.endDate,
+                limit: parseInt(req.query.limit) || 50
+            };
+
+            const history = await departmentHistoryService.getHistory(
+                req.params.id,
+                filters
+            );
+
+            res.status(200).json({
+                success: true,
+                data: history,
+                total: history.length
             });
         } catch (error) {
             next(error);

@@ -65,15 +65,70 @@ router.delete(
 );
 
 /**
- * @route   POST /api/departments/:id/deactivate
- * @desc    Deactivate department (soft delete)
+ * @route   PUT /api/departments/:id/deactivate
+ * @desc    Deactivate department (with reason)
  * @access  Admin, Super Admin
  */
-router.post(
+router.put(
     '/:id/deactivate',
     requireWriteAccess,
     requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    [
+        body('reason').notEmpty().withMessage('Deactivation reason is required')
+    ],
+    validateRequest,
     departmentController.deactivate
+);
+
+/**
+ * @route   PUT /api/departments/:id/activate
+ * @desc    Activate department
+ * @access  Admin, Super Admin
+ */
+router.put(
+    '/:id/activate',
+    requireWriteAccess,
+    requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    departmentController.activate
+);
+
+/**
+ * @route   PUT /api/departments/:id/head
+ * @desc    Assign department head
+ * @access  Admin, Super Admin
+ */
+router.put(
+    '/:id/head',
+    requireWriteAccess,
+    requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    [
+        body('employeeId').notEmpty().withMessage('Employee ID is required')
+    ],
+    validateRequest,
+    departmentController.assignHead
+);
+
+/**
+ * @route   DELETE /api/departments/:id/head
+ * @desc    Remove department head
+ * @access  Admin, Super Admin
+ */
+router.delete(
+    '/:id/head',
+    requireWriteAccess,
+    requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    departmentController.removeHead
+);
+
+/**
+ * @route   GET /api/departments/:id/history
+ * @desc    Get department history
+ * @access  Admin, Super Admin
+ */
+router.get(
+    '/:id/history',
+    requireRole([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+    departmentController.getHistory
 );
 
 module.exports = router;
