@@ -96,6 +96,11 @@ class AttendanceService {
                 entryTime: Timestamp.fromDate(new Date(entryTime)),
                 exitTime: null,
                 workDurationMinutes: null,
+                regularHours: null,  // NEW: Regular shift hours worked
+                overtimeHours: null,  // NEW: Overtime hours worked
+                totalHours: null,  // NEW: Total hours (regular + overtime)
+                overtimeApprovedBy: null,  // NEW: Who approved the overtime
+                overtimeReason: null,  // NEW: Reason for overtime
                 status: ATTENDANCE_STATUS.PENDING,
                 isCorrected,
                 correctedBy: isCorrected ? performedBy.userId : null,
@@ -193,10 +198,34 @@ class AttendanceService {
             // ============ UPDATE EXIT ============
 
             const workDurationMinutes = Math.round(durationMinutes);
+            const workDurationHoursTotal = parseFloat((durationMinutes / 60).toFixed(2));
+
+            // Calculate overtime (if employee has shift assigned)
+            let regularHours = workDurationHoursTotal;
+            let overtimeHours = 0;
+            
+            if (attendance.shiftId) {
+                // Fetch shift to get standard work hours
+                const shiftDoc = await this.getDb().collection(COLLECTIONS.SHIFTS).doc(attendance.shiftId).get();
+                if (shiftDoc.exists) {
+                    const shift = shiftDoc.data();
+                    const shiftHours = shift.workDurationHours || 8;
+                    
+                    if (workDurationHoursTotal > shiftHours) {
+                        regularHours = shiftHours;
+                        overtimeHours = parseFloat((workDurationHoursTotal - shiftHours).toFixed(2));
+                    }
+                }
+            }
 
             const updateData = {
                 exitTime: Timestamp.fromDate(exitTimestamp),
                 workDurationMinutes,
+                regularHours: parseFloat(regularHours.toFixed(2)),  // NEW: Regular hours worked
+                overtimeHours: parseFloat(overtimeHours.toFixed(2)),  // NEW: Overtime hours
+                totalHours: workDurationHoursTotal,  // NEW: Total hours
+                overtimeApprovedBy: overtimeHours > 0 ? performedBy.userId : null,  // NEW: Auto-approve for now
+                overtimeReason: req.body.overtimeReason || null,  // NEW: Optional overtime reason
                 status: ATTENDANCE_STATUS.PRESENT,
                 updatedAt: FieldValue.serverTimestamp(),
             };
@@ -505,11 +534,16 @@ class AttendanceService {
             let daysPresent = 0;
             let daysAbsent = 0;
             let daysPending = 0;
+            let totalOvertimeHours = 0;  // NEW: Sum of all overtime hours
 
             snapshot.forEach(doc => {
                 const data = doc.data();
                 if (data.status === ATTENDANCE_STATUS.PRESENT) {
                     daysPresent++;
+                    // NEW: Accumulate overtime hours
+                    if (data.overtimeHours) {
+                        totalOvertimeHours += data.overtimeHours;
+                    }
                 } else if (data.status === ATTENDANCE_STATUS.ABSENT) {
                     daysAbsent++;
                 } else if (data.status === ATTENDANCE_STATUS.PENDING) {
@@ -522,6 +556,7 @@ class AttendanceService {
                 daysPresent,
                 daysAbsent,
                 daysPending,
+                overtimeHours: parseFloat(totalOvertimeHours.toFixed(2)),  // NEW: Total overtime for month
             };
         } catch (error) {
             throw error;

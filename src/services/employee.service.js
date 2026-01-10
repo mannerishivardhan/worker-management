@@ -82,6 +82,19 @@ class EmployeeService {
             // Generate avatar URL (deterministic based on employee ID)
             const avatar = generateAvatarUrl(employeeId, employeeData.firstName, employeeData.lastName);
 
+            // Calculate hourly rate and overtime only for employees (not admins)
+            let hourlyRate = null;
+            let overtimeMultiplier = null;
+            let overtimeRate = null;
+            let overtimeEligible = false;
+
+            if (employeeData.role === 'employee' && employeeData.overtimeEligible) {
+                hourlyRate = employeeData.monthlySalary / (30 * 8);
+                overtimeMultiplier = employeeData.overtimeMultiplier || 1.5;
+                overtimeRate = hourlyRate * overtimeMultiplier;
+                overtimeEligible = true;
+            }
+
             const newEmployee = {
                 employeeId,
                 firstName: employeeData.firstName,
@@ -90,11 +103,16 @@ class EmployeeService {
                 phone: employeeData.phone || null, // Optional, for contact purposes
                 password: hashedPassword,
                 role: employeeData.role,
+                jobRole: employeeData.jobRole || null,  // NEW: Job classification (e.g., "Normal Security Staff")
                 departmentId: employeeData.departmentId,
                 departmentName: department.name,
                 shiftId: employeeData.shiftId || null,
                 shiftName: shiftName,
                 monthlySalary: employeeData.monthlySalary,
+                hourlyRate: hourlyRate ? parseFloat(hourlyRate.toFixed(2)) : null,  // NULL for admins
+                overtimeEligible: overtimeEligible,  // FALSE for admins
+                overtimeMultiplier: overtimeMultiplier,  // NULL for admins
+                overtimeRate: overtimeRate ? parseFloat(overtimeRate.toFixed(2)) : null,  // NULL for admins
                 joiningDate: joiningDateTimestamp, // Firestore Timestamp
 
                 // NEW: Emergency contact information

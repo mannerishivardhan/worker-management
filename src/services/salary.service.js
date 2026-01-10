@@ -9,21 +9,31 @@ class SalaryService {
     /**
      * Calculate salary for an employee for a specific month
      * Salary is calculated on-demand, not stored
+     * NOW INCLUDES: Overtime hours and overtime pay
      */
     async calculateSalary(userId, year, month) {
         try {
             // Get employee details
             const employee = await employeeService.getEmployeeById(userId);
 
-            // Get monthly attendance summary
+            // Get monthly attendance summary with overtime
             const attendanceSummary = await attendanceService.getMonthlyAttendanceSummary(userId, year, month);
 
-            // Calculate
+            // Calculate base salary
             const daysInMonth = getDaysInMonth(year, month);
             const monthlySalary = employee.monthlySalary;
             const daysPresent = attendanceSummary.daysPresent;
             const dailyRate = monthlySalary / daysInMonth;
-            const calculatedSalary = dailyRate * daysPresent;
+            const baseSalary = dailyRate * daysPresent;
+
+            // Calculate overtime pay (if applicable)
+            const overtimeHours = attendanceSummary.overtimeHours || 0;
+            const hourlyRate = employee.hourlyRate || (monthlySalary / (daysInMonth * 8));
+            const overtimeRate = employee.overtimeRate || (hourlyRate * 1.5);
+            const overtimePay = overtimeHours * overtimeRate;
+
+            // Calculate total salary
+            const calculatedSalary = baseSalary + overtimePay;
 
             return {
                 userId,
@@ -31,16 +41,37 @@ class SalaryService {
                 employeeName: `${employee.firstName} ${employee.lastName}`,
                 departmentId: employee.departmentId,
                 departmentName: employee.departmentName,
+                jobRole: employee.jobRole || null,  // NEW: Job role
                 month: `${year}-${String(month).padStart(2, '0')}`,
                 year,
                 monthNumber: month,
+                
+                // Base salary calculation
                 monthlySalary: parseFloat(monthlySalary.toFixed(2)),
                 daysInMonth,
                 daysPresent,
                 daysAbsent: attendanceSummary.daysAbsent,
                 daysPending: attendanceSummary.daysPending,
                 dailyRate: parseFloat(dailyRate.toFixed(2)),
+                baseSalary: parseFloat(baseSalary.toFixed(2)),
+                
+                // Overtime calculation
+                overtimeHours: parseFloat(overtimeHours.toFixed(2)),
+                hourlyRate: parseFloat(hourlyRate.toFixed(2)),
+                overtimeRate: parseFloat(overtimeRate.toFixed(2)),
+                overtimePay: parseFloat(overtimePay.toFixed(2)),
+                
+                // Total salary
                 calculatedSalary: parseFloat(calculatedSalary.toFixed(2)),
+                
+                // Breakdown for transparency
+                breakdown: {
+                    regularPay: parseFloat(baseSalary.toFixed(2)),
+                    overtimePay: parseFloat(overtimePay.toFixed(2)),
+                    totalHours: parseFloat(((daysPresent * 8) + overtimeHours).toFixed(2)),
+                    deductions: 0,  // Placeholder for future
+                    bonuses: 0  // Placeholder for future
+                }
             };
         } catch (error) {
             throw error;

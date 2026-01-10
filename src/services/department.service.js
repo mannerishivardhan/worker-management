@@ -40,6 +40,7 @@ class DepartmentService {
                 name: departmentData.name,
                 description: departmentData.description || '',
                 hasShifts: departmentData.hasShifts || false,
+                roles: departmentData.roles || [], // NEW: Array of {name, shifts: [{name, startTime, endTime}]}
                 employeeCount: 0,
                 isActive: true,
                 createdAt: FieldValue.serverTimestamp(),

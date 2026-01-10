@@ -54,11 +54,14 @@ class ShiftService {
             const newShift = {
                 shiftId,
                 name: shiftData.name,
+                jobRole: shiftData.jobRole || null,  // NEW: Job role classification (e.g., "Normal Security Staff", "Nepali Workers")
                 departmentId: shiftData.departmentId,
                 departmentName: department.name,
                 startTime: shiftData.startTime,
                 endTime: shiftData.endTime,
                 workDurationHours: parseFloat(workDurationHours.toFixed(2)),
+                overtimeAllowed: shiftData.overtimeAllowed !== undefined ? shiftData.overtimeAllowed : true,  // NEW: Can this shift have overtime?
+                overtimeMultiplier: shiftData.overtimeMultiplier || 1.5,  // NEW: Overtime pay rate multiplier
                 isActive: true,
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),

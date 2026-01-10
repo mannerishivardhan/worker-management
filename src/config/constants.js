@@ -85,4 +85,19 @@ module.exports = {
         CANCELLED: 'cancelled',    // Shift assignment cancelled
         COMPLETED: 'completed',    // Shift completed
     },
+
+    // Overtime Multipliers (NEW: For overtime pay calculations)
+    OVERTIME_MULTIPLIERS: {
+        STANDARD: 1.5,    // 150% for regular overtime (after 8 hours)
+        WEEKEND: 2.0,     // 200% for weekend/holiday work
+        NIGHT: 1.75,      // 175% for night shift overtime
+        HOLIDAY: 2.5,     // 250% for public holiday work
+    },
+
+    // Default Work Hours
+    DEFAULT_WORK_HOURS: {
+        DAILY: 8,         // Standard 8-hour workday
+        WEEKLY: 40,       // Standard 40-hour workweek
+        MONTHLY: 240,     // Approximate monthly hours (30 days × 8 hours)
+    },
 };
