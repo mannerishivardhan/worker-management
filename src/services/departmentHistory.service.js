@@ -16,10 +16,10 @@ class DepartmentHistoryService {
 
     /**
      * Log a department change to history
+     * Uses SUBCOLLECTION for O(1) query performance (no indexing needed)
      */
     async logChange({
-        departmentId,
-        departmentDocId,
+        departmentId,  // DEPT_XXXX - the department document ID
         departmentName,
         actionType,
         changedFields = [],
@@ -42,9 +42,7 @@ class DepartmentHistoryService {
             
             const historyRecord = {
                 historyId,
-                departmentId,
-                departmentDocId,
-                departmentName,
+                departmentName,  // Denormalized for fast display
                 actionType,
                 actionDescription,
                 changedFields,
@@ -63,8 +61,12 @@ class DepartmentHistoryService {
                 isDeleted: false
             };
 
+            // Use SUBCOLLECTION: departments/{departmentId}/history/{historyId}
+            // This is O(1) query - no need for departmentId index!
             const docRef = await this.getDb()
-                .collection(COLLECTIONS.DEPARTMENT_HISTORY)
+                .collection(COLLECTIONS.DEPARTMENTS)
+                .doc(departmentId)
+                .collection('history')
                 .add(historyRecord);
 
             return {
@@ -80,15 +82,19 @@ class DepartmentHistoryService {
 
     /**
      * Get department history with filters
+     * Uses SUBCOLLECTION for instant O(1) access - no cross-collection query needed!
      */
     async getHistory(departmentId, filters = {}) {
         try {
+            // Query the subcollection: departments/{departmentId}/history
+            // This is MUCH faster than querying a separate collection with where clause
             let query = this.getDb()
-                .collection(COLLECTIONS.DEPARTMENT_HISTORY)
-                .where('departmentId', '==', departmentId)
+                .collection(COLLECTIONS.DEPARTMENTS)
+                .doc(departmentId)
+                .collection('history')
                 .where('isDeleted', '==', false);
 
-            // Filter by action type
+            // Filter by action type (requires composite index if used with timestamp)
             if (filters.actionType) {
                 query = query.where('actionType', '==', filters.actionType);
             }

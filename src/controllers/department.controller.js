@@ -251,6 +251,7 @@ class DepartmentController {
                 limit: parseInt(req.query.limit) || 50
             };
 
+            // departmentId IS the document ID now (DEPT_XXXX)
             const history = await departmentHistoryService.getHistory(
                 req.params.id,
                 filters

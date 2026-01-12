@@ -34,14 +34,14 @@ class DepartmentService {
             }
 
             // Generate NEW format ID: DEPT_XXXX (random 4-char)
+            // Use this as the DOCUMENT ID for atomicity (works for both SQL & NoSQL)
             const departmentId = await generateDepartmentId(this.getDb());
 
             const newDepartment = {
-                departmentId,
                 name: departmentData.name,
                 description: departmentData.description || '',
                 hasShifts: departmentData.hasShifts || false,
-                roles: departmentData.roles || [], // NEW: Array of {name, shifts: [{name, startTime, endTime}]}
+                roles: departmentData.roles || [], // Array of {name, shifts: [{name, startTime, endTime}]}
                 employeeCount: 0,
                 isActive: true,
                 status: DEPARTMENT_STATUS.ACTIVE,
@@ -63,13 +63,14 @@ class DepartmentService {
                 updatedByRole: performedBy.role,
             };
 
-            const docRef = await this.getDb().collection(COLLECTIONS.DEPARTMENTS).add(newDepartment);
+            // Set document ID = departmentId for atomicity (no separate departmentId field needed)
+            await this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId).set(newDepartment);
 
             // Audit log
             await auditService.log({
                 action: AUDIT_ACTIONS.DEPARTMENT_CREATED,
                 entityType: 'department',
-                entityId: docRef.id,
+                entityId: departmentId,
                 performedBy: performedBy.userId,
                 performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
                 performedByRole: performedBy.role,
@@ -77,10 +78,9 @@ class DepartmentService {
                 req,
             });
 
-            // Log to department history
+            // Log to department history - now departmentId IS the document ID
             await departmentHistoryService.logChange({
-                departmentId: newDepartment.departmentId,
-                departmentDocId: docRef.id,
+                departmentId: departmentId,
                 departmentName: newDepartment.name,
                 actionType: DEPARTMENT_HISTORY_ACTIONS.CREATED,
                 changedFields: [],
@@ -94,7 +94,7 @@ class DepartmentService {
             });
 
             return {
-                id: docRef.id,
+                id: departmentId,
                 ...newDepartment,
             };
         } catch (error) {
@@ -202,6 +202,29 @@ class DepartmentService {
                 previousData,
                 newData: updateData,
                 req,
+            });
+
+            // Log to department history
+            const changedFields = Object.keys(updates).filter(key => 
+                key !== 'updatedAt' && key !== 'updatedBy' && key !== 'updatedByRole'
+            );
+
+            await departmentHistoryService.logChange({
+                departmentId: departmentId,
+                departmentName: previousData.name,
+                actionType: DEPARTMENT_HISTORY_ACTIONS.UPDATED,
+                changedFields,
+                previousData: Object.fromEntries(
+                    changedFields.map(field => [field, previousData[field]])
+                ),
+                newData: Object.fromEntries(
+                    changedFields.map(field => [field, updates[field]])
+                ),
+                performedBy: performedBy.userId,
+                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
+                performedByRole: performedBy.role,
+                performedByEmployeeId: performedBy.employeeId || null,
+                req
             });
 
             return {
@@ -340,8 +363,7 @@ class DepartmentService {
 
             // Log to department history
             await departmentHistoryService.logChange({
-                departmentId: previousData.departmentId,
-                departmentDocId: departmentId,
+                departmentId: departmentId,
                 departmentName: previousData.name,
                 actionType: DEPARTMENT_HISTORY_ACTIONS.DEACTIVATED,
                 changedFields: ['status', 'isActive', 'deactivationReason'],
@@ -419,8 +441,7 @@ class DepartmentService {
 
             // Log to department history
             await departmentHistoryService.logChange({
-                departmentId: previousData.departmentId,
-                departmentDocId: departmentId,
+                departmentId: departmentId,
                 departmentName: previousData.name,
                 actionType: DEPARTMENT_HISTORY_ACTIONS.ACTIVATED,
                 changedFields: ['status', 'isActive'],
@@ -522,8 +543,7 @@ class DepartmentService {
 
             // Log to department history
             await departmentHistoryService.logChange({
-                departmentId: previousData.departmentId,
-                departmentDocId: departmentId,
+                departmentId: departmentId,
                 departmentName: previousData.name,
                 actionType,
                 changedFields: ['departmentHead'],
@@ -601,8 +621,7 @@ class DepartmentService {
 
             // Log to department history
             await departmentHistoryService.logChange({
-                departmentId: previousData.departmentId,
-                departmentDocId: departmentId,
+                departmentId: departmentId,
                 departmentName: previousData.name,
                 actionType: DEPARTMENT_HISTORY_ACTIONS.HEAD_REMOVED,
                 changedFields: ['departmentHead'],
