@@ -256,71 +256,7 @@ class DepartmentService {
         }
     }
 
-    /**
-     * NEW: Deactivate department (soft delete)
-     * Can only deactivate if no active employees
-     */
-    async deactivateDepartment(departmentId, performedBy, req) {
-        try {
-            const deptRef = this.getDb().collection(COLLECTIONS.DEPARTMENTS).doc(departmentId);
-            const deptDoc = await deptRef.get();
 
-            if (!deptDoc.exists) {
-                throw new Error('Department not found');
-            }
-
-            const deptData = deptDoc.data();
-
-            // Check if already deactivated
-            if (!deptData.isActive) {
-                throw new Error('Department is already deactivated');
-            }
-
-            // Check for active employees
-            const activeEmployees = await this.getDb()
-                .collection(COLLECTIONS.USERS)
-                .where('departmentId', '==', departmentId)
-                .where('isActive', '==', true)
-                .limit(1)
-                .get();
-
-            if (!activeEmployees.empty) {
-                throw new Error('Cannot deactivate department with active employees. Please transfer or deactivate all employees first.');
-            }
-
-            const previousData = deptData;
-
-            // Soft delete - set isActive to false
-            await deptRef.update({
-                isActive: false,
-                updatedAt: FieldValue.serverTimestamp(),
-                updatedBy: performedBy.userId,
-                deactivatedAt: FieldValue.serverTimestamp(),
-                deactivatedBy: performedBy.userId,
-            });
-
-            // Audit log
-            await auditService.log({
-                action: AUDIT_ACTIONS.DEPARTMENT_DEACTIVATED,
-                entityType: 'department',
-                entityId: departmentId,
-                performedBy: performedBy.userId,
-                performedByName: `${performedBy.firstName} ${performedBy.lastName}`,
-                performedByRole: performedBy.role,
-                previousData,
-                newData: { isActive: false },
-                reason: 'Department deactivated (soft delete)',
-                req,
-            });
-
-            return {
-                success: true,
-                message: 'Department deactivated successfully'
-            };
-        } catch (error) {
-            throw error;
-        }
-    }
 
     /**
      * Increment employee count for a department
