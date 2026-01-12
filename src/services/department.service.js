@@ -330,7 +330,8 @@ class DepartmentService {
                 throw new Error('Department is already deactivated');
             }
 
-            // Optional: Check if there are active employees
+            // Check if there are active employees
+            // This ensures data integrity - can't deactivate a department with employees
             if (previousData.employeeCount > 0) {
                 throw new Error('Cannot deactivate department with active employees. Please transfer employees first.');
             }

@@ -209,6 +209,13 @@ class EmployeeService {
                 query = query.where('isActive', '==', filters.isActive);
             }
 
+            // Only add orderBy if NO filters are applied (to avoid composite index requirement)
+            // If filters are present, we'll sort in memory
+            const hasFilters = filters.role || filters.departmentId || (filters.isActive !== undefined);
+            if (!hasFilters) {
+                query = query.orderBy('createdAt', 'desc');
+            }
+
             // Pagination
             if (filters.limit) {
                 query = query.limit(parseInt(filters.limit));
@@ -216,8 +223,6 @@ class EmployeeService {
             if (filters.offset) {
                 query = query.offset(parseInt(filters.offset));
             }
-
-            query = query.orderBy('createdAt', 'desc');
 
             const snapshot = await query.get();
             const employees = [];
@@ -230,6 +235,15 @@ class EmployeeService {
                     ...data,
                 });
             });
+
+            // Sort in memory if filters were applied
+            if (hasFilters) {
+                employees.sort((a, b) => {
+                    const aTime = a.createdAt?._seconds || 0;
+                    const bTime = b.createdAt?._seconds || 0;
+                    return bTime - aTime; // desc order
+                });
+            }
 
             return employees;
         } catch (error) {
